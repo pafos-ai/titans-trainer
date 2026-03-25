@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "titans-trainer"
+version = "0.1.0"
+description = "HuggingFace-style training framework for TITANS (Learning to Memorize at Test Time)"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "PAfoS.AI", email = "ak.yermek@pafos.ai"},
+]
+keywords = ["deep-learning", "pytorch", "titans", "memory", "test-time-learning", "transformer", "trainer", "huggingface"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "ruff"]
+wandb = ["wandb>=0.16.0"]
+all = ["wandb>=0.16.0"]
+
+[project.urls]
+Homepage = "https://github.com/pafos-ai/titans-trainer"
+Documentation = "https://github.com/pafos-ai/titans-trainer#readme"
+Repository = "https://github.com/pafos-ai/titans-trainer"
+
+[tool.setuptools.packages.find]
+include = ["titans_trainer*"]
