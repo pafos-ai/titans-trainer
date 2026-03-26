@@ -70,6 +70,7 @@ class TitansModel(nn.Module):
             chunk_size=config.chunk_size,
             dropout=config.dropout,
             padding_idx=config.padding_idx,
+            causal=getattr(config, 'causal', False),
         )
 
     @classmethod
@@ -115,6 +116,7 @@ class TitansModel(nn.Module):
         chunk_size: int = 128,
         dropout: float = 0.1,
         padding_idx: int = 0,
+        causal: bool = False,
     ):
         super().__init__()
         self.d_model = d_model
@@ -145,6 +147,7 @@ class TitansModel(nn.Module):
                 n_persistent=n_persistent,
                 chunk_size=chunk_size,
                 dropout=dropout,
+                causal=causal,
             )
             for _ in range(n_layers)
         ])

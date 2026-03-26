@@ -117,10 +117,12 @@ class TitansBlock(nn.Module):
         n_persistent: int = 64,
         chunk_size: int = 128,
         dropout: float = 0.1,
+        causal: bool = False,
         # Accepted for config compatibility
         window_size: int = 512,
     ):
         super().__init__()
+        self.causal = causal
 
         # Three memory components
         self.neural_memory = NeuralMemory(
@@ -181,7 +183,10 @@ class TitansBlock(nn.Module):
 
         # 4. Core attention over augmented sequence
         normed = self.norm1(augmented)
-        attn_out = self.attention(normed, mask=None)
+        attn_mask = None
+        if self.causal:
+            attn_mask = self._build_causal_mask(L, persistent.size(1), x.device)
+        attn_out = self.attention(normed, mask=attn_mask)
 
         # Extract only the positions corresponding to input x
         attn_x = attn_out[:, L:2*L, :]
@@ -195,3 +200,40 @@ class TitansBlock(nn.Module):
         x = x + self.ffn(self.norm2(x))
 
         return x
+
+    def _build_causal_mask(self, seq_len: int, n_persistent: int,
+                           device: torch.device) -> torch.Tensor:
+        """
+        Build causal attention mask for augmented sequence [mem_ctx; x; persistent].
+
+        Layout: mem_ctx (L) | x (L) | persistent (P), total = 2L + P
+
+        Rules:
+        - mem_ctx tokens: attend to all mem_ctx (bidirectional context)
+        - x tokens: attend to all mem_ctx, causally to x, and all persistent
+        - persistent tokens: attend to all positions
+        """
+        L, P = seq_len, n_persistent
+        total = 2 * L + P
+
+        # Start with all masked (True = masked for additive mask)
+        mask = torch.ones(total, total, device=device, dtype=torch.bool)
+
+        # mem_ctx (0..L-1) attends to all mem_ctx
+        mask[:L, :L] = False
+
+        # x (L..2L-1) attends to all mem_ctx
+        mask[L:2*L, :L] = False
+        # x attends causally to x (lower triangular)
+        causal = torch.tril(torch.ones(L, L, device=device, dtype=torch.bool))
+        mask[L:2*L, L:2*L] = ~causal
+        # x attends to all persistent
+        mask[L:2*L, 2*L:] = False
+
+        # persistent (2L..end) attends to all
+        mask[2*L:, :] = False
+
+        # Convert bool mask to float additive mask (-inf for masked)
+        float_mask = torch.zeros(total, total, device=device)
+        float_mask.masked_fill_(mask, float('-inf'))
+        return float_mask

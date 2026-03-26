@@ -119,6 +119,7 @@ def main():
         n_persistent=32,
         chunk_size=64,
         max_seq_len=seq_len,
+        causal=True,
         dropout=0.1,
 
         lr=3e-4,

@@ -146,16 +146,59 @@ config = TitansConfig(
 # That's it. Trainer logs loss, LR, grad norm, val metrics automatically.
 ```
 
-## Training Paradigms
+## Shakespeare Demo
 
-### Masked Language Modeling (BERT-style)
+Train a causal TITANS language model on Shakespeare in under 25 minutes:
 
 ```python
-# Dataset returns:
-#   input_ids: tokens with 15% replaced by [MASK]
-#   labels: original tokens at masked positions, -100 elsewhere
-# See examples/mlm_training.py for full implementation.
+pip install titans-trainer tiktoken
 ```
+
+```python
+import torch
+from torch.utils.data import Dataset
+import urllib.request, tiktoken
+from titans_trainer import TitansConfig, TitansModel, TitansTrainer
+
+# Download & tokenize
+text = urllib.request.urlopen(
+    "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
+).read().decode("utf-8")
+enc = tiktoken.get_encoding("gpt2")
+tokens = torch.tensor(enc.encode(text), dtype=torch.long)
+
+# Dataset: autoregressive (GPT-style) — predict next token
+class ShakespeareDataset(Dataset):
+    def __init__(self, tokens, seq_len=256):
+        self.tokens, self.seq_len = tokens, seq_len
+    def __len__(self):
+        return len(self.tokens) // self.seq_len - 1
+    def __getitem__(self, idx):
+        chunk = self.tokens[idx * self.seq_len : idx * self.seq_len + self.seq_len + 1]
+        return {"input_ids": chunk[:-1], "labels": chunk[1:]}
+
+split = int(len(tokens) * 0.9)
+train_ds = ShakespeareDataset(tokens[:split])
+val_ds   = ShakespeareDataset(tokens[split:])
+
+# Config — 23.5M params, causal attention
+config = TitansConfig(
+    vocab_size=enc.n_vocab, d_model=256, n_layers=8, n_heads=8, d_ff=1024,
+    memory_depth=2, n_persistent=32, chunk_size=64, max_seq_len=256,
+    causal=True,  # autoregressive masking
+    lr=3e-4, epochs=25, batch_size=8, warmup_steps=100,
+    use_amp=True, use_wandb=False, output_dir="./outputs/shakespeare",
+)
+
+# Train (~20 min on single GPU)
+model = TitansModel.from_config(config)
+trainer = TitansTrainer(model, train_ds, val_ds, config)
+trainer.train()  # best val loss: ~2.71
+```
+
+After 25 epochs the model generates Shakespearean vocabulary and dialogue structure. See [`examples/shakespeare.py`](examples/shakespeare.py) for the full script with text generation.
+
+## Training Paradigms
 
 ### Autoregressive (GPT-style)
 
@@ -163,7 +206,18 @@ config = TitansConfig(
 # Dataset returns:
 #   input_ids: tokens[:-1]
 #   labels: tokens[1:]  (shifted by one)
-# See examples/autoregressive_training.py for full implementation.
+# Set causal=True in config for proper autoregressive masking.
+# See examples/shakespeare.py and examples/autoregressive_training.py.
+```
+
+### Masked Language Modeling (BERT-style)
+
+```python
+# Dataset returns:
+#   input_ids: tokens with 15% replaced by [MASK]
+#   labels: original tokens at masked positions, -100 elsewhere
+# Leave causal=False (default) for bidirectional attention.
+# See examples/mlm_training.py for full implementation.
 ```
 
 ### Continuous Features (Time Series, Sensors, etc.)
@@ -260,6 +314,7 @@ out = block(x)  # (4, 2048, 256)
 
 | Example | Description |
 |---------|-------------|
+| [`examples/shakespeare.py`](examples/shakespeare.py) | **Start here** — train on Shakespeare, generate text |
 | [`examples/quickstart.py`](examples/quickstart.py) | Full HF-style workflow: config → model → train → save |
 | [`examples/mlm_training.py`](examples/mlm_training.py) | Masked Language Modeling (BERT-style) |
 | [`examples/autoregressive_training.py`](examples/autoregressive_training.py) | Next-token prediction (GPT-style) with text generation |
