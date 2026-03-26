@@ -34,6 +34,7 @@ class TitansConfig:
     dropout: float = 0.1
     padding_idx: int = 0
     architecture: str = "titans"  # "titans" or "bert" (for ablation)
+    causal: bool = False  # Use causal (autoregressive) attention masking
 
     # Training
     lr: float = 5e-4

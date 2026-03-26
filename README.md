@@ -146,48 +146,34 @@ config = TitansConfig(
 # That's it. Trainer logs loss, LR, grad norm, val metrics automatically.
 ```
 
-## Training Paradigms
+## Shakespeare Benchmark
 
-### Masked Language Modeling (BERT-style)
+Apples-to-apples comparison against Karpathy's [nanoGPT](https://github.com/karpathy/nanoGPT) on TinyShakespeare — same vocab (character-level, 65 tokens), same param budget (~10.65M), same training compute (80 epochs), same batch size (64), same LR (1e-3).
 
-```python
-# Dataset returns:
-#   input_ids: tokens with 15% replaced by [MASK]
-#   labels: original tokens at masked positions, -100 elsewhere
-# See examples/mlm_training.py for full implementation.
+| | nanoGPT | TITANS |
+|---|---|---|
+| **Val loss** | ~1.47 | **1.55** |
+| Architecture | Vanilla transformer | MAC (memory + attention + persistent) |
+| Params | ~10.65M | 10.67M |
+| Training | ~80 epochs | 80 epochs |
+
+On this toy benchmark TITANS trades a small gap in val loss for architectural capabilities that vanilla transformers lack. The advantage grows with sequence length — on 256-char snippets there is little long-range structure to exploit, but on longer sequences (documents, codebases, biological data) the memory enables test-time adaptation. See [Real-World Results](#real-world-results) for evidence at scale.
+
+**Sample generation** (10.67M params, 80 epochs, raw model output, unfiltered):
+
+```
+ROMEO:
+Gerby, coward!
+PAULINA:
+Believe thee, friend,
+Whose dost there, some tapster, which thou think'st,
+A virtue of my love against my mercy,
+And we have pulic, that he did not say with no
+Lonest fire an offer consent, to send them,
+I have their afflicts of thy want;
 ```
 
-### Autoregressive (GPT-style)
-
-```python
-# Dataset returns:
-#   input_ids: tokens[:-1]
-#   labels: tokens[1:]  (shifted by one)
-# See examples/autoregressive_training.py for full implementation.
-```
-
-### Continuous Features (Time Series, Sensors, etc.)
-
-```python
-# No vocabulary — pass pre-embedded features directly
-config = TitansConfig(vocab_size=None, d_model=64, n_layers=4, n_heads=4)
-model = TitansModel.from_config(config)
-
-x = torch.randn(batch, seq_len, 64)
-embeddings = model.get_embeddings(x)  # (batch, 64)
-```
-
-## Anomaly Detection via Surprise
-
-The TITANS memory learns "normal" patterns. Inputs that deviate produce high surprise scores — useful for anomaly detection, novelty scoring, and out-of-distribution detection.
-
-```python
-model.eval()
-surprise = model.get_surprise_scores(data)  # (batch, seq_len, n_layers)
-
-# High surprise = input deviates from learned patterns
-anomalous_tokens = surprise.mean(dim=-1) > threshold
-```
+See [`examples/shakespeare_benchmark.py`](examples/shakespeare_benchmark.py) for the full benchmark script, and [`examples/shakespeare.py`](examples/shakespeare.py) for a quick BPE demo with text generation.
 
 ## Architecture
 
@@ -229,6 +215,51 @@ for chunk in sequence.chunks(128):
     output = memory_mlp(chunk)                     # re-read updated memory
 ```
 
+## Training Paradigms
+
+### Autoregressive (GPT-style)
+
+```python
+# Dataset returns:
+#   input_ids: tokens[:-1]
+#   labels: tokens[1:]  (shifted by one)
+# Set causal=True in config for proper autoregressive masking.
+# See examples/shakespeare.py and examples/autoregressive_training.py.
+```
+
+### Masked Language Modeling (BERT-style)
+
+```python
+# Dataset returns:
+#   input_ids: tokens with 15% replaced by [MASK]
+#   labels: original tokens at masked positions, -100 elsewhere
+# Leave causal=False (default) for bidirectional attention.
+# See examples/mlm_training.py for full implementation.
+```
+
+### Continuous Features (Time Series, Sensors, etc.)
+
+```python
+# No vocabulary — pass pre-embedded features directly
+config = TitansConfig(vocab_size=None, d_model=64, n_layers=4, n_heads=4)
+model = TitansModel.from_config(config)
+
+x = torch.randn(batch, seq_len, 64)
+embeddings = model.get_embeddings(x)  # (batch, 64)
+```
+
+## Anomaly Detection via Surprise
+
+The TITANS memory learns "normal" patterns. Inputs that deviate produce high surprise scores — useful for anomaly detection, novelty scoring, and out-of-distribution detection.
+
+```python
+model.eval()
+surprise = model.get_surprise_scores(data)  # (batch, seq_len, n_layers)
+
+# High surprise = input deviates from learned patterns
+anomalous_tokens = surprise.mean(dim=-1) > threshold
+```
+
 ## Dataset Format
 
 Same as HuggingFace — your `__getitem__` returns:
@@ -260,27 +291,51 @@ out = block(x)  # (4, 2048, 256)
 
 | Example | Description |
 |---------|-------------|
+| [`examples/shakespeare_benchmark.py`](examples/shakespeare_benchmark.py) | **Start here** — TITANS vs nanoGPT benchmark |
+| [`examples/shakespeare.py`](examples/shakespeare.py) | Quick BPE Shakespeare demo with text generation |
 | [`examples/quickstart.py`](examples/quickstart.py) | Full HF-style workflow: config → model → train → save |
 | [`examples/mlm_training.py`](examples/mlm_training.py) | Masked Language Modeling (BERT-style) |
 | [`examples/autoregressive_training.py`](examples/autoregressive_training.py) | Next-token prediction (GPT-style) with text generation |
 | [`examples/time_series_anomaly.py`](examples/time_series_anomaly.py) | Continuous features + anomaly detection |
 | [`examples/datasets.py`](examples/datasets.py) | Ready-to-use dataset classes for all paradigms |
 
+## Real-World Results
+
+titans-trainer powers [BioTitan](https://huggingface.co/pafos-ai/biotitan),
+the first genomic foundation model built on the TITANS architecture.
+
+Trained on just 255K cells (vs Geneformer's 30M cells and 6 epochs), BioTitan
+achieves **92% of Geneformer's performance** across 53 gene property tasks on the
+[IBM gene-benchmark](https://arxiv.org/abs/2412.04075) — with 120× less training data.
+
+What makes this possible is a capability unique to TITANS: **test-time memory adaptation.**
+BioTitan's static embeddings score 0.636 avg AUC. After processing 60K cells at
+inference — no retraining, no optimizer, no labels — they rise to 0.716. That +12.6%
+improvement is architecturally impossible in Geneformer, scGPT, or any other existing
+single-cell foundation model.
+
+On expression tasks (23 tasks), BioTitan places 5th among 13 models evaluated —
+above all text, protein, and DNA models — despite training on the smallest dataset
+of any model in the benchmark.
+
+Pre-computed gene embeddings and model weights are available on
+[HuggingFace](https://huggingface.co/pafos-ai/biotitan).
+
 ## Citation
 
 ```bibtex
-@article{behrouz2025titans,
-  title={Titans: Learning to Memorize at Test Time},
-  author={Behrouz, Ali and Zhong, Peilin and Mirrokni, Vahab},
-  journal={NeurIPS},
-  year={2025}
-}
-
 @software{yermekov2026titans_trainer,
   title={titans-trainer: HuggingFace-style Training for TITANS},
   author={Yermekov, Akbar},
   url={https://github.com/pafos-ai/titans-trainer},
   year={2026}
+}
+
+@article{behrouz2025titans,
+  title={Titans: Learning to Memorize at Test Time},
+  author={Behrouz, Ali and Zhong, Peilin and Mirrokni, Vahab},
+  journal={NeurIPS},
+  year={2025}
 }
 ```
 

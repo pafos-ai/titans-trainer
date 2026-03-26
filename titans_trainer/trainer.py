@@ -126,7 +126,8 @@ class TitansTrainer:
             if step < warmup:
                 return step / max(1, warmup)
             progress = (step - warmup) / max(1, total_batches - warmup)
-            return 0.5 * (1.0 + math.cos(math.pi * progress))
+            cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return max(cosine, 0.1)  # floor at 10% of peak LR
 
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
 
@@ -217,10 +218,10 @@ class TitansTrainer:
 
                 epoch_time = time.time() - epoch_start
                 print(
-                    f"\nEpoch {epoch + 1}/{epochs} │ "
-                    f"train={train_loss:.4f} │ "
-                    f"val={val_metrics.get('val_loss', 0):.4f} │ "
-                    f"acc={val_metrics.get('val_accuracy', 0):.3f} │ "
+                    f"\nEpoch {epoch + 1}/{epochs} | "
+                    f"train={train_loss:.4f} | "
+                    f"val={val_metrics.get('val_loss', 0):.4f} | "
+                    f"acc={val_metrics.get('val_accuracy', 0):.3f} | "
                     f"time={epoch_time:.0f}s\n"
                 )
 
@@ -319,7 +320,7 @@ class TitansTrainer:
                     "val/loss": mid_val['val_loss'],
                     "val/accuracy": mid_val.get('val_accuracy', 0),
                 })
-                print(f"  val │ loss={mid_val['val_loss']:.4f} │ "
+                print(f"  val | loss={mid_val['val_loss']:.4f} | "
                       f"acc={mid_val.get('val_accuracy', 0):.4f}")
                 if 'on_val' in self.callbacks:
                     self.callbacks['on_val'](self, mid_val)
@@ -336,9 +337,9 @@ class TitansTrainer:
                 lr = self.scheduler.get_last_lr()[0]
                 pct = batch_idx / len(self.train_loader) * 100
                 print(
-                    f"  Epoch {epoch+1} │ "
-                    f"{batch_idx+1}/{len(self.train_loader)} ({pct:.0f}%) │ "
-                    f"loss={batch_loss:.4f} │ avg={avg:.4f} │ lr={lr:.2e}",
+                    f"  Epoch {epoch+1} | "
+                    f"{batch_idx+1}/{len(self.train_loader)} ({pct:.0f}%) | "
+                    f"loss={batch_loss:.4f} | avg={avg:.4f} | lr={lr:.2e}",
                     end='\r',
                 )
 

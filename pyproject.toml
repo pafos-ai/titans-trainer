@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "titans-trainer"
-version = "0.1.0"
+version = "0.1.1"
 description = "HuggingFace-style training framework for TITANS (Learning to Memorize at Test Time)"
 readme = "README.md"
 license = {text = "MIT"}
