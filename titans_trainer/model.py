@@ -81,11 +81,14 @@ class TitansModel(nn.Module):
         Usage:
             model = TitansModel.from_pretrained("outputs/best_model.pt")
         """
-        from .config import TitansConfig
         ckpt = torch.load(path, map_location=device, weights_only=False)
-        config = TitansConfig.from_dict(ckpt.get('config', {}))
-        model = cls.from_config(config)
+        # config is the full architecture dict saved by save_pretrained. Older
+        # checkpoints only stored vocab_size/d_model; those keys still apply and
+        # the rest fall back to defaults.
+        config = dict(ckpt.get('config', {}))
+        model = cls(**config)
         model.load_state_dict(ckpt['model_state_dict'])
+        model.to(device)
         return model
 
     def save_pretrained(self, path: str):
@@ -97,10 +100,7 @@ class TitansModel(nn.Module):
         """
         torch.save({
             'model_state_dict': self.state_dict(),
-            'config': {
-                'vocab_size': self.vocab_size,
-                'd_model': self.d_model,
-            },
+            'config': self.config,
         }, path)
 
     def __init__(
@@ -119,6 +119,16 @@ class TitansModel(nn.Module):
         causal: bool = False,
     ):
         super().__init__()
+        # Full architecture config so save_pretrained/from_pretrained round-trip
+        # the entire model, not just vocab_size/d_model. Without this, loading a
+        # non-default architecture rebuilds with defaults and the state_dict fails.
+        self.config = {
+            'vocab_size': vocab_size, 'd_model': d_model, 'n_layers': n_layers,
+            'n_heads': n_heads, 'd_ff': d_ff, 'max_seq_len': max_seq_len,
+            'memory_depth': memory_depth, 'n_persistent': n_persistent,
+            'chunk_size': chunk_size, 'dropout': dropout,
+            'padding_idx': padding_idx, 'causal': causal,
+        }
         self.d_model = d_model
         self.vocab_size = vocab_size
 
